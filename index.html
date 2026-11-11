@@ -173,6 +173,37 @@ form .btn { justify-self: start; background: var(--navy); color: var(--paper); }
 form .btn:hover { background: var(--navy-deep); }
 form .btn[disabled] { opacity: 0.6; cursor: default; }
 #form-status { margin: 0; font-weight: 500; min-height: 1.6em; }
+form .btn.busy::after {
+  content: ""; display: inline-block; width: 0.9em; height: 0.9em; margin-left: 10px;
+  border: 2px solid rgba(244, 244, 241, 0.35); border-top-color: var(--paper); border-radius: 50%;
+  vertical-align: -0.12em; animation: spin 0.7s linear infinite;
+}
+.sent-panel { display: none; }
+form.sent > *:not(.sent-panel) { display: none; }
+form.sent { align-content: center; }
+form.sent .sent-panel { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 24px 8px; }
+.tick { width: 84px; height: 84px; margin-bottom: 8px; }
+.tick circle { fill: none; stroke: var(--navy); stroke-width: 3; stroke-linecap: round;
+  stroke-dasharray: 202; stroke-dashoffset: 0; transform: rotate(-90deg); transform-origin: 36px 36px;
+  animation: draw-ring 0.6s ease-out both; }
+.tick path { fill: none; stroke: var(--signal); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 44; stroke-dashoffset: 0; animation: draw-tick 0.35s 0.5s ease-out both; }
+.sent-panel h3 { font-weight: 700; font-size: 1.7rem; color: var(--navy); animation: rise 0.4s 0.7s ease-out both; }
+.sent-panel p { margin: 0; max-width: 26em; color: var(--ink-soft); overflow-wrap: anywhere; animation: rise 0.4s 0.82s ease-out both; }
+.sent-panel .note { font-size: 0.9rem; color: var(--err); }
+.again {
+  margin-top: 14px; background: none; border: 0; padding: 6px 2px; cursor: pointer;
+  font: inherit; font-weight: 500; color: var(--navy); text-decoration: underline; text-underline-offset: 3px;
+  animation: rise 0.4s 0.94s ease-out both;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes draw-ring { from { stroke-dashoffset: 202; } }
+@keyframes draw-tick { from { stroke-dashoffset: 44; } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) {
+  .tick circle, .tick path, .sent-panel h3, .sent-panel p, .again { animation: none; }
+  form .btn.busy::after { animation-duration: 1.6s; }
+}
 #form-status.ok { color: var(--ok); }
 #form-status.err { color: var(--err); }
 
@@ -301,6 +332,13 @@ footer a { color: #D3DBE1; }
         </div>
         <button id="f-submit" class="btn" type="submit">Send message</button>
         <p id="form-status" role="status" aria-live="polite"></p>
+        <div class="sent-panel" id="sent-panel" role="status" tabindex="-1">
+          <svg class="tick" viewBox="0 0 72 72" aria-hidden="true"><circle cx="36" cy="36" r="32"></circle><path d="M22 37l10 10 19-21"></path></svg>
+          <h3>Message sent</h3>
+          <p id="sent-text">Thank you. We have your message and will be in touch.</p>
+          <p class="note" id="sent-note" hidden>Preview only. Nothing was sent.</p>
+          <button type="button" class="again" id="sent-again">Send another message</button>
+        </div>
       </form>
     </div>
   </section>
@@ -378,13 +416,33 @@ footer a { color: #D3DBE1; }
 // While it is empty, the form sends nothing and says so.
 var FORM_ENDPOINT = "https://api.web3forms.com/submit";
 var ACCESS_KEY = "545d76c2-e0d5-4de4-9f1b-9fd0e4a9b17f";
+var PREVIEW = false; // true only in the private preview: shows the confirmation without sending
 
 (function () {
   document.getElementById("yr").textContent = new Date().getFullYear();
   var form = document.getElementById("contact-form");
   var status = document.getElementById("form-status");
   var btn = document.getElementById("f-submit");
+  var panel = document.getElementById("sent-panel");
   function say(text, kind) { status.textContent = text; status.className = kind || ""; }
+  function busy(on) {
+    btn.disabled = on; btn.classList.toggle("busy", on);
+    btn.textContent = on ? "Sending" : "Send message";
+  }
+  function showSent(name, email) {
+    var first = name.split(/\s+/)[0];
+    document.getElementById("sent-text").textContent =
+      "Thank you, " + first + ". We have your message and will reply to " + email + ".";
+    document.getElementById("sent-note").hidden = !PREVIEW;
+    form.style.minHeight = form.offsetHeight + "px";
+    form.reset(); say("");
+    form.classList.add("sent");
+    panel.focus({ preventScroll: true });
+  }
+  document.getElementById("sent-again").addEventListener("click", function () {
+    form.classList.remove("sent"); form.style.minHeight = "";
+    form.elements["name"].focus();
+  });
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();
@@ -396,8 +454,9 @@ var ACCESS_KEY = "545d76c2-e0d5-4de4-9f1b-9fd0e4a9b17f";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { say("Enter a valid email address.", "err"); form.elements["email"].focus(); return; }
     if (!message) { say("Enter a message.", "err"); form.elements["message"].focus(); return; }
     if (form.elements["company"].value) { return; }
+    if (PREVIEW) { busy(true); say(""); setTimeout(function () { busy(false); showSent(name, email); }, 900); return; }
     if (!ACCESS_KEY) { say("Preview only. Nothing was sent. To reach us now, call 508-494-8739.", "err"); return; }
-    btn.disabled = true; say("Sending...");
+    busy(true); say("");
     fetch(FORM_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Accept": "application/json" },
@@ -413,10 +472,10 @@ var ACCESS_KEY = "545d76c2-e0d5-4de4-9f1b-9fd0e4a9b17f";
         if (!r.ok || j.success === false) { throw new Error(j.message || ("HTTP " + r.status)); }
       });
     }).then(function () {
-      form.reset(); say("Message sent. Thank you.", "ok");
+      showSent(name, email);
     }).catch(function () {
       say("The message could not be sent. Call 508-494-8739 or email cole.miller@cmequipmentsales.com.", "err");
-    }).then(function () { btn.disabled = false; });
+    }).then(function () { busy(false); });
   });
 })();
 </script>
